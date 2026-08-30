@@ -9,6 +9,12 @@
   <property name="severity" value="warning"/>
   <property name="fileExtensions" value="java"/>
 
+  <!-- A Spring Boot entry point is a class with only main(); it is not a utility class. -->
+  <module name="SuppressionSingleFilter">
+    <property name="checks" value="HideUtilityClassConstructor"/>
+    <property name="files" value=".*Application\.java$"/>
+  </module>
+
   <module name="FileTabCharacter"/>
   <module name="NewlineAtEndOfFile"/>
   <module name="LineLength">
