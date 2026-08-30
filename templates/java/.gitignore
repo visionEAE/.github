@@ -1,0 +1,21 @@
+# Secrets and local configuration — never committed
+.env
+secrets/
+*.pem
+
+# Maven / Java
+target/
+*.class
+!.mvn/wrapper/maven-wrapper.jar
+*.log
+
+# IDEs and OS
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+.DS_Store
+Thumbs.db
