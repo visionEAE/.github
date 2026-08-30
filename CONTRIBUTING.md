@@ -35,11 +35,13 @@ chore: bootstrap repository with org conventions
 
 ### Enforcement
 
-* Locally: each repository ships `.githooks/commit-msg`; `git config core.hooksPath .githooks`
-  activates it (done automatically when the repo is created with `bootstrap-repo.sh`, and by
-  `make hooks` where a Makefile exists).
-* In CI: each repository's `.github/workflows/commit-convention.yml` calls the reusable workflow
-  in this repository on every pull request.
+Locally, with [lefthook](https://github.com/evilmartians/lefthook) — deliberately **not** in CI,
+so no Actions minutes are spent validating messages.
+
+* Each repository ships `lefthook.yml` and `.lefthook/commit-msg/check-message.sh`.
+* Activate once per clone: `lefthook install` (done automatically by `bootstrap-repo.sh`, and for
+  every Student 360 repository by `make hooks` in `student360-infra`).
+* Install lefthook itself with `npm install -g lefthook` (or `brew install lefthook`).
 * Commit template: `git config commit.template .gitmessage`.
 
 ## 2. Branching and merging
