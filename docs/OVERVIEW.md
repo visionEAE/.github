@@ -25,7 +25,7 @@ The proof of concept demonstrates, end to end and with real running services (no
 - everything that happens is **traceable and auditable**, including denied attempts;
 - every state change is recorded in a way that could feed a data warehouse in production.
 
-## 2. The five services
+## 2. The six services
 
 | Service | Responsibility | Port |
 |---|---|---|
@@ -34,12 +34,33 @@ The proof of concept demonstrates, end to end and with real running services (no
 | `core-service` | Simulates the institution's student and financial systems (SIS + ERP). Source of truth for identity, academic status, financial status. | 8082 |
 | `lms-service` | Simulates the learning platform. Courses, submissions, access logs, and the *interpreted* engagement signal (days since last access, on-time rate, idle courses). | 8083 |
 | `support-service` | Everything new: wellbeing entries, the risk rule, alerts, intervention plans, advisor reports and requests. The only service that calls the other two synchronously and composes a decision. | 8084 |
+| `network-service` | The support network: a weighted graph of *who supports this student*, in **Neo4j**. Each `SUPPORTS` edge is rated 1–10, independently, by the student and by the support team. | 8085 |
 | `frontend` | Single-page app: the two experiences below. | 5173 |
 
 Why the learning platform is its own service rather than folded into the SIS/ERP one: it produces
 high-frequency behavioural *signals*, not official state, and — as at the real institution — it is
 a third-party system with its own lifecycle. Keeping it separate is also what makes the
 orchestration in `support-service` genuine rather than a single database read.
+
+### Why the support network is a graph, and its own service
+
+"Who is this student's strongest support?" is a genuinely different question from the rest of the
+platform. It is *subjective* (rated, and rated differently by the student and by the team),
+*mutable*, and naturally a graph — a student's network overlaps with other students' networks, and
+the interesting queries are about structure, not rows. Putting it in Neo4j behind its own service
+keeps that shape honest instead of flattening it into a join table.
+
+Two properties are worth calling out:
+
+* **Both sides rate independently.** The same person carries up to two edges — the student's own
+  rating and the support team's — and neither is averaged away into the other. That is deliberate:
+  a student rating their advisor 5/10 while the advisor rates the relationship 8/10 is a *signal*,
+  not a conflict to resolve.
+* **Contact details have a stated provenance.** Opening a person shows how to reach them, labelled
+  with where that came from: `DIRECTORY` (resolved live from core-service — professors, fellow
+  students), `SELF_REPORTED` (typed in by whoever added them — family, friends), or `NONE`. The
+  institution's directory is never copied into the graph, so an institutional email cannot go
+  stale, and nobody mistakes a hand-typed phone number for an official one.
 
 ## 3. Two-layer authorization
 
@@ -113,7 +134,7 @@ concurrent `401`s share a single refresh attempt so they can never look like a t
 
 ## 8. What "stage 2" changes
 
-Stage 1 runs entirely on a developer's machine: PostgreSQL and the five services in Docker
+Stage 1 runs entirely on a developer's machine: PostgreSQL, Neo4j and the six services in Docker
 Compose, a locally-signed token standing in for service-to-service authentication, domain events
 written to an outbox table instead of published anywhere. Every one of those is a named interface
 today; stage 2 (a future cloud deployment) plans to swap:
@@ -138,11 +159,16 @@ for this demo. Every account uses the password below; none of this is a real ins
 
 | Perspective | Email | What you see |
 |---|---|---|
-| Student — at-risk case | `maria.rojas@u.icesi.edu.co` | Own 360° view, an active high-severity alert generated against her own data, "Mi espacio seguro" wellbeing form |
-| Student — on track | `ana.torres@u.icesi.edu.co` | Own 360° view with no open alert |
+| Student — at-risk case | `maria.rojas@u.icesi.edu.co` | Own 360° view, an active high-severity alert generated against her own data, "Mi espacio seguro" wellbeing form, and a deliberately **thin** support network — her mother is the one strong tie, and the team has flagged a professor to build a link to |
+| Student — on track | `ana.torres@u.icesi.edu.co` | Own 360° view with no open alert, and the contrast case for "Mi red de apoyo": a broad, balanced network of family, a friend, a peer, a mentor professor and her advisor |
 | Student — mixed profile | `juan.gomez@u.icesi.edu.co`, `luis.gomez@u.icesi.edu.co`, `santiago.molina@u.icesi.edu.co`, `isabella.zapata@u.icesi.edu.co`, `andres.ruiz@u.icesi.edu.co` | Other seeded students, each with a different mix of academic/financial/wellbeing standing |
 | Student-support team | `carlos.mejia@icesi.edu.co` | "Mis estudiantes" overview (6 advisees, a real spread of risk levels), alert inbox, interventions, reports |
 | Student-support team | `diana.perez@icesi.edu.co` | A second advisor's caseload (4 advisees) — also the one who is correctly **denied** access to María Rojas's alert, since she holds no active assignment to her |
+
+"Mi red de apoyo" is an interactive graph: drag a node, zoom, and click a person to see their
+contact details, a one-line summary of who they are, and every rating on the relationship. The
+seeded networks are loaded separately from the relational data (`make seed-network`), since Neo4j
+has no Flyway equivalent.
 
 The advisor overview and 360° views are populated with a full spread of academic, financial and
 emotional standing across ten seeded students — including cases where the risk comes from only
