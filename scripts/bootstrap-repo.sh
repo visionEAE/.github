@@ -18,11 +18,15 @@ name="${1:?repo name}"; kind="${2:?java|node|generic}"; description="${3:-}"
 seed_only="${4:-}"
 target="$here/../../$name"
 
+# Convention files are always refreshed; .gitignore and README are written only on creation,
+# because they are repository-specific and a re-seed must never clobber them.
 seed() {
   mkdir -p "$target/.lefthook/commit-msg"
   cp "$templates/generic/.editorconfig" "$target/.editorconfig"
   cp "$templates/generic/.gitmessage" "$target/.gitmessage"
-  cp "$templates/$kind/.gitignore" "$target/.gitignore" 2>/dev/null || cp "$templates/generic/.gitignore" "$target/.gitignore"
+  if [ ! -f "$target/.gitignore" ]; then
+    cp "$templates/$kind/.gitignore" "$target/.gitignore" 2>/dev/null || cp "$templates/generic/.gitignore" "$target/.gitignore"
+  fi
   cp "$templates/generic/lefthook.yml" "$target/lefthook.yml"
   cp "$here/check-commit-message.sh" "$target/.lefthook/commit-msg/check-message.sh"
   chmod +x "$target/.lefthook/commit-msg/check-message.sh"
