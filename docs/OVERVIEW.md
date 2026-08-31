@@ -294,7 +294,7 @@ The stage 2 deployment is live on Cloud Run. Demo account passwords are fixed bu
 here — read them from Secret Manager
 (`gcloud secrets versions access latest --secret=s360-prod-seed-student-password` /
 `...-seed-staff-password`), as documented in
-[`stage2-deployment.md`](https://github.com/visionEAE/student360-infra/blob/main/docs/stage2-deployment.md).
+[`stage2-deployment.md`](stage2-deployment.md).
 
 | Perspective | Email | What you see |
 |---|---|---|
@@ -311,4 +311,4 @@ contact details, a one-line summary of who they are, and every rating on the rel
 The full design rationale — creative process, architecture diagram, database model, the answers to
 every part of the technical test, and the security and communication decisions summarised above —
 is written up in
-[`prueba-tecnica.md`](https://github.com/visionEAE/student360-infra/blob/main/docs/prueba-tecnica.md).
+[`prueba-tecnica.md`](prueba-tecnica.md).
