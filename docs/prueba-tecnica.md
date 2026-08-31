@@ -226,6 +226,359 @@ flowchart LR
     NET_SVC ==>|"grafo SUPPORTS<br/>(1–10, por ambos lados)"| NEO[("Neo4j<br/>Person · Student —SUPPORTS→")]
 ```
 
+**Diagrama interactivo (dbdiagram.io)**: [dbdiagram.io/d/vista360](https://dbdiagram.io/d/vista360-69876916bd82f5fce2f9f477)
+— generado a partir de las migraciones Flyway reales de cada servicio (una tabla por cada
+`CREATE TABLE`, con sus PK/FK, `UNIQUE` y `CHECK` reales; las columnas `*_reference` /
+`*_pseudonym` que "apuntan" a otro schema están marcadas explícitamente como **clave
+cross-service, no FK de base de datos** — ningún servicio comparte schema con otro, así que
+ninguna de esas columnas es en realidad una foreign key en Postgres). Fuente DBML, para
+copiar y pegar directo en <https://dbdiagram.io>:
+
+```dbml
+Project vista360 {
+  database_type: 'PostgreSQL'
+  Note: '''
+  Vista 360° del Estudiante — una instancia PostgreSQL 16, un schema por servicio, un rol de base
+  de datos confinado a su propio schema (make check-isolation lo prueba en local; Cloud SQL lleva
+  el mismo modelo a producción, ver stage2-deployment.md §5). Las columnas *_reference /
+  *_pseudonym que "apuntan" a una entidad de otro schema son CLAVES CROSS-SERVICE, no foreign
+  keys: los servicios nunca comparten schema ni hacen join entre ellos — ese límite lo impone el
+  rol de base de datos, no solo la convención.
+
+  NO representado aquí: la red de apoyo (quién apoya a cada estudiante) vive en Neo4j, no en
+  Postgres, porque es un grafo, no una tabla — ver el Note "graph_store" al final de este script,
+  y prueba-tecnica.md §3 / OVERVIEW.md §4 para el porqué.
+  '''
+}
+
+// ─────────────────────────── auth ───────────────────────────
+Table auth.app_user {
+  id uuid [pk]
+  email varchar [unique, not null]
+  password_hash varchar [not null, note: 'BCrypt; never logged']
+  full_name varchar
+  external_reference varchar [note: 'cross-service key (S-1001…) — matches core.student.id or an advisor id; NOT a DB foreign key']
+  active boolean [not null, default: true]
+  created_at timestamp [not null]
+}
+
+Table auth.role {
+  id int [pk, increment]
+  name varchar [unique, not null, note: 'STUDENT | ADVISOR | ADMIN']
+}
+
+Table auth.user_role {
+  user_id uuid [ref: > auth.app_user.id, not null]
+  role_id int [ref: > auth.role.id, not null]
+
+  indexes {
+    (user_id, role_id) [pk]
+  }
+}
+
+Table auth.auth_session {
+  id uuid [pk]
+  user_id uuid [ref: > auth.app_user.id, not null]
+  created_at timestamp [not null]
+  revoked_at timestamp
+  revocation_reason varchar [note: 'LOGOUT | REUSE_DETECTED | EXPIRED']
+  user_agent varchar
+  source_ip varchar
+  Note: 'A session is a refresh-token FAMILY: every rotation stays inside it, and reuse revokes the whole family.'
+}
+
+Table auth.refresh_token {
+  id uuid [pk]
+  session_id uuid [ref: > auth.auth_session.id, not null]
+  token_hash varchar [unique, not null, note: 'SHA-256 of the opaque value; the value itself is never stored']
+  issued_at timestamp [not null]
+  expires_at timestamp [not null]
+  used_at timestamp
+  replaced_by uuid [ref: > auth.refresh_token.id]
+}
+
+// ─────────────────────────── core ───────────────────────────
+Table core.program {
+  id int [pk, increment]
+  code varchar [unique, not null]
+  name varchar [not null]
+  faculty varchar [not null]
+  total_semesters int [not null, default: 10]
+}
+
+Table core.student {
+  id varchar [pk, note: 'external id, e.g. S-1001 — the cross-service key every other schema references informally']
+  code varchar
+  first_name varchar [not null]
+  last_name varchar [not null]
+  email varchar [unique, not null]
+  program_id int [ref: > core.program.id, not null]
+  admission_term varchar [not null]
+  current_semester int [not null, default: 1]
+  status varchar [not null, note: 'ACTIVE | ON_LEAVE | WITHDRAWN']
+  created_at timestamp [not null]
+}
+
+Table core.enrollment {
+  id bigint [pk, increment]
+  student_id varchar [ref: > core.student.id, not null]
+  term varchar [not null]
+  semester_number int
+  credits_enrolled int [not null]
+  credits_approved int [not null]
+  term_gpa decimal(3,2) [note: 'null while the term is in progress']
+  cumulative_gpa decimal(3,2) [not null]
+  academic_standing varchar [not null, note: 'GOOD | PROBATION | AT_RISK']
+
+  indexes {
+    (student_id, term) [unique]
+  }
+}
+
+Table core.financial_status {
+  id bigint [pk, increment]
+  student_id varchar [ref: > core.student.id, unique, not null]
+  outstanding_balance decimal(12,2) [not null]
+  overdue_balance decimal(12,2) [not null]
+  days_overdue int [not null]
+  tuition_amount decimal(12,2) [not null, default: 0]
+  paid_amount decimal(12,2) [not null, default: 0]
+  due_date date
+  payment_plan varchar [note: 'short description; null = none active']
+  scholarship varchar [note: 'null = none']
+  financial_hold boolean [not null]
+  updated_at timestamp [not null]
+}
+
+Table core.course_grade {
+  id bigint [pk, increment]
+  student_id varchar [ref: > core.student.id, not null]
+  term varchar [not null]
+  course_code varchar [not null]
+  course_name varchar [not null]
+  credits int [not null]
+  current_grade decimal(3,2) [note: 'null until something is graded']
+
+  indexes {
+    (student_id, term, course_code) [unique]
+  }
+}
+
+Table core.tuition_payment {
+  id bigint [pk, increment]
+  student_id varchar [ref: > core.student.id, not null]
+  due_date date [not null]
+  paid_at date
+  description varchar [not null]
+  amount decimal(12,2) [not null]
+  status varchar [not null, note: 'PAID | PENDING | OVERDUE']
+}
+
+Table core.professor {
+  id bigint [pk, increment]
+  full_name varchar [not null]
+  email varchar
+  department varchar
+}
+
+Table core.course_offering {
+  id bigint [pk, increment]
+  term varchar [not null]
+  course_code varchar [not null]
+  course_name varchar [not null]
+  professor_id bigint [ref: > core.professor.id, not null]
+
+  indexes {
+    (term, course_code) [unique]
+  }
+}
+
+// ─────────────────────────── lms ───────────────────────────
+Table lms.course {
+  id int [pk, increment]
+  code varchar [not null]
+  name varchar [not null]
+  term varchar [not null]
+
+  indexes {
+    (code, term) [unique]
+  }
+}
+
+Table lms.course_enrollment {
+  id int [pk, increment]
+  student_reference varchar [not null, note: 'cross-service key (S-1001…) issued by core-service; NOT a DB foreign key — lms never joins to core']
+  course_id int [ref: > lms.course.id, not null]
+  status varchar [not null, note: 'ACTIVE | DROPPED']
+
+  indexes {
+    (student_reference, course_id) [unique]
+  }
+}
+
+Table lms.assignment {
+  id int [pk, increment]
+  course_id int [ref: > lms.course.id, not null]
+  title varchar [not null]
+  type varchar [not null, note: 'HOMEWORK | QUIZ | PROJECT | EXAM']
+  due_at timestamp [not null]
+}
+
+Table lms.submission {
+  id int [pk, increment]
+  assignment_id int [ref: > lms.assignment.id, not null]
+  student_reference varchar [not null, note: 'cross-service key; NOT a DB foreign key']
+  submitted_at timestamp [note: 'null when MISSING — absence is a fact, not an inference']
+  status varchar [not null, note: 'ON_TIME | LATE | MISSING']
+
+  indexes {
+    (assignment_id, student_reference) [unique]
+  }
+}
+
+Table lms.access_log {
+  id bigint [pk, increment]
+  student_reference varchar [not null, note: 'cross-service key; NOT a DB foreign key']
+  course_id int [ref: > lms.course.id, not null]
+  occurred_at timestamp [not null]
+  access_type varchar [not null, note: 'LOGIN | CONTENT_VIEW | FORUM_POST | SUBMISSION']
+  Note: 'High-frequency, append-only behavioural data — the signal the support rule reads.'
+}
+
+// ─────────────────────────── support ───────────────────────────
+Table support.wellbeing_entry {
+  id uuid [pk]
+  student_pseudonym varchar [not null, note: 'HMAC(student id); the plain id never touches this table']
+  status varchar [not null, default: 'SENT', note: 'DRAFT | SENT — a draft is invisible to advisors and never evaluated']
+  level smallint [not null, note: '1..4, overall']
+  recorded_at timestamp [not null]
+  sent_at timestamp
+  updated_at timestamp [not null]
+}
+
+Table support.wellbeing_entry_dimension {
+  id bigint [pk, increment]
+  entry_id uuid [ref: > support.wellbeing_entry.id, not null]
+  dimension varchar [not null, note: 'ECONOMIC | ACADEMIC | EMOTIONAL']
+  mood smallint [not null, note: '1 DIFFICULT .. 4 VERY_GOOD']
+  needs varchar [note: 'text array of requested support types']
+  note varchar [note: 'free text; never logged nor published']
+
+  indexes {
+    (entry_id, dimension) [unique]
+  }
+}
+
+Table support.advisor_assignment {
+  id int [pk, increment]
+  advisor_reference varchar [not null, note: 'cross-service key; NOT a DB foreign key']
+  student_reference varchar [not null, note: 'cross-service key; NOT a DB foreign key']
+  valid_from date [not null]
+  valid_to date [note: 'null = open-ended — the relationship that authorizes an advisor to see a student']
+}
+
+Table support.alert {
+  id uuid [pk]
+  student_reference varchar [not null, note: 'cross-service key; NOT a DB foreign key']
+  severity varchar [not null, note: 'MEDIUM | HIGH']
+  source varchar [not null, note: 'which rule produced it']
+  triggering_signals jsonb [not null, note: 'why it fired — explainable, not a black box']
+  created_by varchar [note: 'advisor reference for manual alerts, null for the rule']
+  generated_at timestamp [not null]
+  updated_at timestamp [not null]
+  status varchar [not null, note: 'OPEN | ACKNOWLEDGED | CLOSED']
+}
+
+Table support.intervention_plan {
+  id uuid [pk]
+  alert_id uuid [ref: > support.alert.id, note: 'nullable — a plan may exist without an alert']
+  student_reference varchar [not null, note: 'cross-service key; NOT a DB foreign key']
+  type varchar [not null, note: 'ACADEMIC_FOLLOW_UP | INTEGRAL_SUPPORT']
+  description varchar [not null]
+  status varchar [not null, note: 'PROPOSED | ACTIVE | COMPLETED']
+  created_by varchar
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table support.support_report {
+  id uuid [pk]
+  alert_id uuid [ref: > support.alert.id, not null]
+  advisor_reference varchar [not null, note: 'cross-service key; NOT a DB foreign key']
+  content varchar [not null]
+  created_at timestamp [not null]
+}
+
+Table support.support_request {
+  id uuid [pk]
+  student_reference varchar [not null, note: 'cross-service key; NOT a DB foreign key']
+  alert_id uuid [ref: > support.alert.id]
+  type varchar [not null, note: 'FINANCIAL_WELLBEING_REFERRAL | PSYCHOLOGICAL_SUPPORT_REFERRAL | TUTORING | WORKLOAD_ADJUSTMENT | PROFESSOR_MEETING | OTHER']
+  description varchar [not null]
+  status varchar [not null, note: 'OPEN | IN_PROGRESS | RESOLVED']
+  resolution varchar
+  created_by varchar [not null, note: 'advisor reference']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table support.outbox_event {
+  id uuid [pk]
+  event_type varchar [not null]
+  aggregate_type varchar [not null]
+  aggregate_id varchar [not null]
+  payload jsonb [not null]
+  created_at timestamp [not null]
+  published_at timestamp [note: 'set by the relay job once Pub/Sub confirms the publish; null = pending drain']
+}
+
+// ─────────────────────────── network ───────────────────────────
+Table network.outbox_event {
+  id uuid [pk]
+  event_type varchar [not null]
+  aggregate_type varchar [not null]
+  aggregate_id varchar [not null]
+  payload jsonb [not null]
+  created_at timestamp [not null]
+  published_at timestamp
+  Note: 'Same shape as support.outbox_event. The graph itself is NOT here — see Note "graph_store" below.'
+}
+
+// ─────────────────────────── audit (owned by no service) ───────────────────────────
+Table audit.audit_record {
+  id bigint [pk, increment]
+  occurred_at timestamp [not null]
+  request_id varchar [not null]
+  trace_id varchar
+  service_name varchar [not null, note: 'which service wrote it']
+  record_type varchar [not null, note: 'DATA_ACCESS | SECURITY | STATE_CHANGE']
+  action varchar [not null, note: 'READ_FINANCIAL_STATUS, LOGIN_FAILED, …']
+  actor_id uuid
+  actor_roles varchar [note: 'text array of roles']
+  subject_type varchar [note: 'STUDENT | SESSION | ALERT']
+  subject_id varchar
+  authorization_basis varchar [note: 'SELF | ASSIGNMENT | ADMIN_ROLE | NONE']
+  outcome varchar [not null, note: 'ALLOWED | DENIED']
+  source_ip varchar
+  details jsonb [note: 'extra context; never sensitive values in clear text']
+
+  Note: 'Owned by NO service. Every service role has INSERT/SELECT ONLY here — enforced by GRANT, not application code. This table is the schema-per-service isolation boundary made visible.'
+}
+
+Note graph_store {
+  '''
+  Neo4j AuraDB Free — network-service's real data store, not representable as a relational
+  table, so it is not one of the tables above:
+
+    (:Student {reference})-[:SUPPORTS {rating: int, ratedBy: 'STUDENT' | 'TEAM'}]->(:Person {name, contactProvenance})
+
+  Each SUPPORTS edge is rated 1-10 INDEPENDENTLY by the student and by the support team; neither
+  rating is averaged into the other. contactProvenance is DIRECTORY (resolved live from
+  core-service) | SELF_REPORTED | NONE. See prueba-tecnica.md §3 and OVERVIEW.md §4.
+  '''
+}
+```
+
 ## 4. Supuestos declarados
 
 1. **SIS, ERP y LMS se simulan** exponiendo el contrato que los sistemas reales expondrían a
@@ -337,7 +690,7 @@ sujeto, resultado, base de autorización, `request_id` y `trace_id`.
 | Red de apoyo (quién apoya a quién, con qué fuerza) | `network-service` (Neo4j) + directorio de `core` | Relación subjetiva, mutable y estructural → grafo; los datos de contacto institucionales se resuelven del directorio **en tiempo de lectura** (nunca se copian: no pueden quedar obsoletos) |
 | Data warehouse | outbox → relay → Pub/Sub → BigQuery | El evento se persiste con el negocio (transaccional) y se publica después: el DWH puede caerse sin perder nada y sin frenar la operación |
 
-La comunicación entre componentes es el §5; el diagrama, el §3.
+La comunicación entre componentes es el §5; el diagrama, el §3.1.
 
 ### Parte 2 — Servicio: materias matriculadas y notas actuales
 
@@ -430,7 +783,10 @@ antes de integrarlo.
 
 | Parte | Dónde |
 |---|---|
-| 1 · Diagrama + decisiones | Este documento (§3 diagrama, §4–5 decisiones y supuestos) |
+| 1 · Diagrama + decisiones | Este documento (§3.1–3.2 diagramas, §4–§6 decisiones y supuestos) |
+| 2 · Servicio: materias y notas | §7, Parte 2 de este documento |
+| 3 · Seguridad y comunicación | §7, Parte 3.1–3.2 de este documento |
+| 4 · Operación y calidad (escenarios) | §7, Parte 4 de este documento |
 | Ejecución local | [`running-locally.md`](https://github.com/visionEAE/student360-infra/blob/main/docs/running-locally.md) — credenciales demo incluidas |
 | Despliegue GCP | [`stage2-deployment.md`](stage2-deployment.md) |
 | Visión pública del sistema | [OVERVIEW de la organización](OVERVIEW.md) |

@@ -190,7 +190,7 @@ at creation time, with no apply-order cycles.
    to. Wrong relationship → `403`, **and an audit record explaining why**, recorded before the
    response leaves.
 
-Both layers are exercised live in the demonstration thread (§9) — locally, and again against the
+Both layers are exercised live in the demonstration thread (§10) — locally, and again against the
 deployed cloud services.
 
 ## 8. Audit trail

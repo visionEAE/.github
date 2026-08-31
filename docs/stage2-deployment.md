@@ -68,7 +68,7 @@ matters (the durable state lives one repository over):
 | `service-accounts` | One least-privilege runtime identity per workload — §4 |
 | `cloud-run-service` | The one reusable module every one of the seven HTTP services instantiates, parameterised |
 | `cloud-run-job` | Same shape philosophy, for the relay job |
-| `dwh` | The Pub/Sub topic, its BigQuery subscription, the Scheduler that triggers the relay — §6 |
+| `dwh` | The Pub/Sub topic, its BigQuery subscription, the Scheduler that triggers the relay — §7 |
 
 `terraform-core` never re-derives anything the backend already computed: it reads the backend's
 state with `data.terraform_remote_state` (same bucket, different prefix) to get the Artifact
@@ -92,7 +92,7 @@ patch step after the first service existed.
 **Terraform owns shape, the pipeline owns which build runs.** Every Cloud Run resource declares
 `lifecycle { ignore_changes = [template[0].containers[0].image] }`. An unrelated infrastructure
 change — bumping memory, adding an env var — can never accidentally roll a service back to the
-placeholder image named in `terraform.tfvars`; only the deploy pipeline (§7) ever changes what is
+placeholder image named in `terraform.tfvars`; only the deploy pipeline (§9) ever changes what is
 actually running.
 
 ## 3. Secrets: two shapes, one rule
@@ -156,7 +156,7 @@ connector (a billed pair of always-on instances) and `ingress = "internal"` on t
 themselves (which would force *all* traffic through the VPC, requiring Cloud NAT — about
 $32/month — just so the network-service could still reach AuraDB over the public internet).
 Privacy for the four internal services comes from **IAM** (`run.invoker` scoped to specific caller
-service accounts, §6 in `stage2-deployment` architecture note), not from network topology.
+service accounts — see §8), not from network topology.
 
 **Transport is encrypted and enforced.** `ssl_mode = "ENCRYPTED_ONLY"` on the instance — a
 connection that isn't TLS is refused, not merely discouraged.
