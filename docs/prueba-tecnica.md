@@ -28,6 +28,8 @@ Metodología de trabajo:
 
 ## 2. Proceso creativo
 
+<img width="1600" height="1200" alt="image" src="https://github.com/user-attachments/assets/caaafa77-7fec-4981-9974-5a1dd567215c" />
+
 ### Visión
 
 Lo primero que se definió fue una visión. Inicialmente estaba enfocada en *monitorear* el
@@ -437,9 +439,9 @@ antes de integrarlo.
 
 | Parte | Dónde |
 |---|---|
-| 1 · Diagrama + decisiones | Este documento (§3.1–3.2 diagramas, §4–§6 decisiones y supuestos) |
-| 2 · Servicio: materias y notas | §7, Parte 2 de este documento |
-| 3 · Seguridad y comunicación | §7, Parte 3.1–3.2 de este documento |
+| 1 · Diagrama + decisiones | Este documento (3.1–3.2 diagramas, 4–6 decisiones y supuestos) |
+| 2 · Servicio: materias y notas |  Parte 2 de este documento |
+| 3 · Seguridad y comunicación | Parte 3.1–3.2 de este documento |
 | 4 · Operación y calidad (escenarios) | §7, Parte 4 de este documento |
 | Ejecución local | [`running-locally.md`](https://github.com/visionEAE/student360-infra/blob/main/docs/running-locally.md) — credenciales demo incluidas |
 | Despliegue GCP | [`stage2-deployment.md`](stage2-deployment.md) |
